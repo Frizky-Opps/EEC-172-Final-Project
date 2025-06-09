@@ -1,118 +1,141 @@
+from pathlib import Path
+
+# Define the markdown content based on the final report
+final_report_md = """
 ---
 layout: default
 title: 2048 Game on CC3200
-description: A standalone version of 2048 implemented in embedded C on a CC3200 with IR input, OLED display, temperature visualization, and AWS IoT score uploads.
+description: A standalone 2048 game implemented using the CC3200 microcontroller with tilt input, OLED display, and AWS IoT integration.
 ---
 
-# 2048 Game – EEC 172 Final Project
+# 2048 Game – EEC 172 Final Project Report
 
-This is a standalone, embedded implementation of the classic 2048 puzzle game, created on the **TI CC3200 microcontroller**. It uses an **OLED screen** for display, an **IR remote** or **tilt sensor** for input, a **temperature sensor** to adapt visuals, and **AWS IoT** integration to post high scores to the cloud.
-
----
-
-## 📝 Description (0.5 pt)
-
-The player slides tiles on a 4×4 grid. Identical tiles that collide merge into one with double the value. A new tile (2 or 4) appears each move. The goal is to reach 2048, though players can continue afterward. The game ends when no moves are left.
+By Arun Khanijau and Jesse Gomez
 
 ---
 
-## 🧠 Functional Specification (2.5 pts)
+## 📝 Project Description
 
-The software is built around a finite state machine:
-
-- **INIT** – Initializes Wi-Fi, OLED, and sensors
-- **IDLE** – Waits for valid gesture or IR input
-- **PROCESS_INPUT** – Updates grid and game logic
-- **UPDATE_DISPLAY** – Redraws screen and score
-- **GAME_OVER** – Displays result, posts to AWS
-- **RESET** – Waits for reset or timeout to restart
-
-![State Diagram](media/fsm.png)
+This project implements the 2048 puzzle game on a standalone embedded system using the TI CC3200 microcontroller. All game logic, input handling, and display rendering are performed directly on the MCU. Players interact using the onboard **accelerometer**, and the game is displayed on an **Adafruit SSD1351 OLED screen**. Upon completion, game results are posted to **AWS IoT** for leaderboard tracking.
 
 ---
 
-## 🧩 System Architecture (2.5 pts)
+## 🎮 Game Overview
 
-Our hardware-software architecture includes:
+**2048** is a sliding tile puzzle played on a 4×4 grid. The player merges tiles by sliding them in one of four directions—up, down, left, or right—with the goal of forming a tile with the number **2048**.
 
-- **CC3200 LaunchPad**: Core processor
-- **IR Receiver / Accelerometer**: User input
-- **Adafruit OLED**: Game display
-- **TMP006 Temp Sensor**: Controls color scheme
-- **AWS IoT**: Uploads score for leaderboard tracking
-
-![System Block Diagram](media/system-architecture.png)
+- **Initial Setup**: Two random tiles (2 or 4) appear on the grid.
+- **Movement**: Tiles move as far as possible in the selected direction.
+- **Merging**: Identical adjacent tiles combine (e.g., 2 + 2 → 4).
+- **Tile Spawn**: A new tile spawns after each move in an empty space.
+- **End Condition**: The game ends when no moves remain.
 
 ---
 
-## 🔧 Implementation (5 pts)
+## 🧠 Functional Specification
+
+The game operates as a finite state machine (FSM) with the following states:
+
+- **INIT** – Initializes SPI, I2C, and peripherals; draws the game board.
+- **WAIT_INPUT** – Waits for tilt or UART input.
+- **PROCESS_MOVE** – Executes move logic, spawns new tile, and updates screen.
+- **CHECK_GAME_OVER** – Checks for available moves.
+- **END_GAME** – Displays final score and posts to AWS IoT.
+
+![FSM Diagram](media/fsm.png)
+
+---
+
+## 🧩 System Architecture
+
+**Hardware Components**:
+- **TI CC3200 MCU**: Central processor.
+- **Adafruit SSD1351 OLED Display**: SPI-based graphical output.
+- **BMA222 Accelerometer**: I2C input via tilt gesture.
+- **UART**: Debugging and optional keyboard control.
+- **AWS IoT**: Cloud posting of game results.
+
+**Software Modules**:
+- `test.c`: Handles board drawing.
+- `main.c`: Contains logic and system initialization.
+- `http_post()`: Sends final score and tile data to AWS over TLS.
+
+![System Architecture](media/system-architecture.png)
+
+---
+
+## 🔧 Implementation
+
+### Hardware Interface
+- **SPI**: Drives OLED at 20 MHz using Adafruit SSD1351 driver.
+- **I2C**: Communicates with BMA222 (0x18) for X/Y axis readings.
+- **UART**: Optional for debug input/output using W/A/S/D keys.
+
+### Display Rendering
+- `draw2048Board()`: Draws grid and margins.
+- `display2048Numbers()`: Writes tile numbers with scaling.
 
 ### Game Logic
-- 2048 mechanics (sliding, merging, spawning new tiles)
-- C array-based grid system with movement vectors
-- State transition logic driven by GPIO/IR interrupts
+- Grid stored as a `4x4 int` array.
+- Movement via `moveLeft()`, `moveRight()`, etc.
+- `spawnTile()` adds new tile post-move.
+- `movesAvailable()` detects if the game is over.
 
 ### Input Handling
-- IR signals decoded via timer-based GPIO interrupt
-- Accelerometer polled periodically as optional fallback
-
-### Display
-- SSD1351 OLED driven over SPI
-- Game board redrawn on every state update
-- Font rendering via `glcdfont.h` and GFX primitives
-
-### Temperature Integration
-- TMP006 I2C sensor reads ambient temperature
-- Visual style changes (e.g., blue/cool, red/hot themes)
+- **Tilt Input**: Thresholded accelerometer readings with cooldown.
+- **UART Input**: 'W', 'A', 'S', 'D' for movement.
+- Neutral orientation required between moves to debounce.
 
 ### Cloud Integration
-- High score sent to AWS IoT using MQTT via CC3200 Wi-Fi
-- Server receives, logs, and returns leaderboard data
+- TLS-secured HTTP POST to AWS IoT
+- Sends JSON payload with largest tile and score
+- Uses `construct_data1()` and `http_post()` to format and send data
 
 ---
 
-## 🧪 Challenges (2 pts)
+## 🧪 Challenges
 
-- **IR decoding**: Needed precise edge detection and timing to decode NEC protocol correctly
-- **Display flicker**: Fixed by optimizing redraw logic and partial screen refresh
-- **Tile movement bugs**: Required multiple code rewrites to preserve merge rules
-- **AWS/MQTT latency**: Solved with async retry logic and manual payload optimization
-
----
-
-## 🚀 Future Work (0.5 pt)
-
-- Add sound using PWM and speaker
-- Expand leaderboard with persistent storage
-- Enhance UI with animation effects
-- Switch to capacitive touch input
+- **OLED Flickering**: Solved by increasing SPI speed to 20 MHz.
+- **Tilt Stability**: Solved with cooldown + neutral reset logic.
+- **AWS Integration**: Required troubleshooting of TLS sockets, JSON formatting, and payload delivery.
 
 ---
 
-## 🧾 Bill of Materials (2 pts)
+## 🚀 Future Work
 
-| Item                       | Qty | Price | Source        |
-|----------------------------|-----|-------|---------------|
-| TI CC3200 LaunchPad        | 1   | $30   | TI            |
-| Adafruit OLED (SSD1351)    | 1   | $20   | Adafruit      |
-| IR Receiver                | 1   | $2    | Amazon        |
-| TMP006 Temp Sensor         | 1   | $1    | Amazon        |
-| Micro USB Cable            | 1   | $0    | Included      |
-| Breadboard + wires         | 1   | $10   | Amazon        |
-| AWS Free Tier              | 1   | $0    | aws.amazon.com |
+- Implement temperature-based tile coloring.
+- Store high scores in flash memory.
+- Add animated tile transitions.
+- Explore gesture or touch-based input.
+- Power optimization via low-power modes.
 
 ---
 
-## 📹 Video Demo (2.5 pts)
+## 🧾 Bill of Materials
+
+| Component                  | Description                | Vendor              | Cost  |
+|----------------------------|----------------------------|----------------------|-------|
+| CC3200 MCU                 | Development board          | Texas Instruments    | $65   |
+| SSD1351 OLED Display       | 1.5\" SPI OLED             | Adafruit             | $40   |
+| BMA222 Accelerometer       | Tilt sensor (I2C)          | Included             | $0    |
+| Breadboard + Jumper Wires | Prototyping materials      | Amazon               | $10   |
+
+---
+
+## 📹 Video Demo
 
 <iframe width="100%" height="315" src="https://www.youtube.com/embed/YOUR_VIDEO_ID" frameborder="0" allowfullscreen></iframe>
 
 ---
 
-## 🎨 Aesthetics (2.5 pts)
+## 🌐 Site Aesthetics
 
-This project site is designed using GitHub Pages with the **Cayman theme**, featuring organized sections, embedded media, and reproducibility-focused documentation.
+This page is styled using the **Cayman theme** via GitHub Pages, designed to match grading requirements for clarity, documentation quality, and reproducibility.
+"""
 
----
+# Save the report to a file named index.md
+output_path = Path("/mnt/data/index.md")
+output_path.write_text(final_report_md)
 
-> 📌 For source code and schematics, visit the [GitHub Repository](https://github.com/frisky-opps/EEC-172-Final-Project)
+# Provide download link
+output_path.name
